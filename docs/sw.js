@@ -1,4 +1,4 @@
-const CACHE = 'health-log-v1';
+const CACHE = 'health-log-v2';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -27,9 +27,9 @@ self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
   // Never cache calls to the Apps Script API — always go to network.
-  if (url.includes('script.google.com')) {
-    event.respondWith(fetch(event.request).catch(() => new Response(
-      JSON.stringify({ ok: false, error: 'offline' }),
+  if (url.includes('script.google.com') || url.includes('script.googleusercontent.com')) {
+    event.respondWith(fetch(event.request).catch((err) => new Response(
+      JSON.stringify({ ok: false, error: 'network error: ' + (err && err.message ? err.message : String(err)) }),
       { headers: { 'Content-Type': 'application/json' } }
     )));
     return;
