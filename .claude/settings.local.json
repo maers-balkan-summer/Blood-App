@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import PIL; print\\('PIL ok'\\)\")",
+      "Bash(python -c \"import PIL; print\\('PIL ok'\\)\")",
+      "Bash(npx --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npx --version)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\My Things \\(Not Cloud\\)\\\\Blood App\\\\serve.ps1\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8420 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"stopped\")"
+    ]
+  }
+}
