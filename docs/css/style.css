@@ -21,6 +21,7 @@ html, body {
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   height: 100%;
+  overflow-x: hidden;
 }
 
 #app {
@@ -108,13 +109,14 @@ h2.view-title { margin: 4px 0 16px; font-size: 1.15rem; }
   margin-bottom: 6px;
 }
 
-.field input[type="date"],
-.field input[type="time"],
-.field input[type="number"],
-.field input[type="text"],
-.field select,
-.field textarea {
+input[type="date"],
+input[type="time"],
+input[type="number"],
+input[type="text"],
+select,
+textarea {
   width: 100%;
+  min-width: 0;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -126,8 +128,9 @@ h2.view-title { margin: 4px 0 16px; font-size: 1.15rem; }
 
 .field textarea { min-height: 70px; resize: vertical; }
 
-.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; min-width: 0; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
+.row2 > *, .row3 > * { min-width: 0; }
 
 .reading-group {
   border: 1px dashed var(--border);

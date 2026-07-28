@@ -1,6 +1,6 @@
 {
-  "name": "Health Log",
-  "short_name": "Health Log",
+  "name": "Blood App",
+  "short_name": "Blood App",
   "description": "Log blood pressure, meditation, exercise, and heart events; review trends over time.",
   "start_url": "./index.html",
   "scope": "./",

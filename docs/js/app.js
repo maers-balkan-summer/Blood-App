@@ -136,8 +136,12 @@ function makeDefaultState(type) {
       excitingLastHour: false, excitingNextHour: false, betaBlockerTaken: false
     });
   }
-  if (type === 'meditation' || type === 'exercise' || type === 'heartEvent') {
+  if (type === 'meditation' || type === 'exercise') {
     base.type = '';
+    base.typeOther = '';
+  }
+  if (type === 'heartEvent') {
+    base.types = [];
     base.typeOther = '';
   }
   return base;
@@ -209,6 +213,19 @@ function pillTypeField(type, state) {
     extra = `<div class="field" style="margin-top:8px"><input type="text" data-field="typeOther" placeholder="Describe type..." value="${state.typeOther || ''}"></div>`;
   }
   return fieldWrap('Type', `<div class="pill-select">${btns}</div>${extra}`);
+}
+
+function multiPillTypeField(type, state) {
+  const options = TYPE_PRESETS[type];
+  const selected = state.types || [];
+  const btns = options.map(o =>
+    `<button type="button" class="btn-choice ${selected.includes(o) ? 'selected' : ''}" data-field="types" data-value="${o}" data-multi="true">${o}</button>`
+  ).join('');
+  let extra = '';
+  if (selected.includes('Other')) {
+    extra = `<div class="field" style="margin-top:8px"><input type="text" data-field="typeOther" placeholder="Describe type..." value="${state.typeOther || ''}"></div>`;
+  }
+  return fieldWrap('Type (select all that apply)', `<div class="pill-select">${btns}</div>${extra}`);
 }
 
 //////////////////// Blood pressure readings block ////////////////////
@@ -300,7 +317,7 @@ function renderHeartEventForm(state) {
     <form data-form-type="heartEvent">
       <div class="card">
         ${dateTimeFields(state)}
-        ${pillTypeField('heartEvent', state)}
+        ${multiPillTypeField('heartEvent', state)}
         ${numberField('durationMinutes', 'Duration (minutes, if known)', state, { placeholder: 'e.g. 5' })}
       </div>
       <div class="card">
@@ -347,7 +364,9 @@ function buildPayload(type, state) {
     return { timestamp, type: type_, durationMinutes: state.durationMinutes || '', intensity: state.intensity || '', sentiment: state.sentiment || '', notes: state.notes || '' };
   }
   if (type === 'heartEvent') {
-    return { timestamp, type: type_, severity: state.severity || '', durationMinutes: state.durationMinutes || '', feeling: state.feeling || '', notes: state.notes || '' };
+    const types = Array.isArray(state.types) ? state.types : [];
+    const typeLabel = types.map(t => t === 'Other' ? (state.typeOther || 'Other').trim() : t).join(', ');
+    return { timestamp, type: typeLabel, severity: state.severity || '', durationMinutes: state.durationMinutes || '', feeling: state.feeling || '', notes: state.notes || '' };
   }
 }
 
@@ -358,7 +377,7 @@ function validate(type, state) {
     if (!state.type) return 'Pick a type.';
     if (!state.durationMinutes) return 'Enter a duration.';
   } else if (type === 'heartEvent') {
-    if (!state.type) return 'Pick a type.';
+    if (!state.types || !state.types.length) return 'Pick at least one type.';
   }
   return null;
 }
@@ -628,7 +647,13 @@ function initDelegation() {
       else if (value === 'false') value = false;
       if (form) {
         const type = form.dataset.formType;
-        formStates[type][field] = value;
+        if (btn.dataset.multi === 'true') {
+          const arr = formStates[type][field] || (formStates[type][field] = []);
+          const idx = arr.indexOf(value);
+          if (idx === -1) arr.push(value); else arr.splice(idx, 1);
+        } else {
+          formStates[type][field] = value;
+        }
         renderFormTab(type);
       } else if (btn.dataset.trendType) {
         trendState.type = btn.dataset.trendType;

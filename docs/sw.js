@@ -1,4 +1,4 @@
-const CACHE = 'health-log-v2';
+const CACHE = 'blood-app-v3';
 const SHELL_FILES = [
   './',
   './index.html',
