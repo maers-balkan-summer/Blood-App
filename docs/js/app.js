@@ -61,21 +61,27 @@ async function apiPost(type, payload) {
 async function syncQueue(silent) {
   const url = getApiUrl();
   const q = getQueue();
-  if (!url || !q.length) return { synced: 0, remaining: q.length };
+  if (!url) {
+    if (!silent) showToast('No API URL set yet — add one in Settings.', 'error');
+    return { synced: 0, remaining: q.length };
+  }
+  if (!q.length) return { synced: 0, remaining: 0 };
   const remaining = [];
   let synced = 0;
+  let lastError = '';
   for (const body of q) {
     try {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.ok) synced++; else remaining.push(body);
+      if (data.ok) synced++; else { remaining.push(body); lastError = data.error || 'Server rejected the record'; }
     } catch (e) {
       remaining.push(body);
+      lastError = String(e);
     }
   }
   setQueue(remaining);
   setConnStatus(remaining.length && synced === 0 ? 'bad' : (url ? 'ok' : 'unset'));
-  if (!silent) showToast(`Synced ${synced}, ${remaining.length} remaining`, remaining.length ? 'error' : 'success');
+  if (!silent) showToast(`Synced ${synced}, ${remaining.length} remaining` + (remaining.length ? `: ${lastError}` : ''), remaining.length ? 'error' : 'success');
   return { synced, remaining: remaining.length };
 }
 
@@ -136,11 +142,7 @@ function makeDefaultState(type) {
       excitingLastHour: false, excitingNextHour: false, betaBlockerTaken: false
     });
   }
-  if (type === 'meditation' || type === 'exercise') {
-    base.type = '';
-    base.typeOther = '';
-  }
-  if (type === 'heartEvent') {
+  if (type === 'meditation' || type === 'exercise' || type === 'heartEvent') {
     base.types = [];
     base.typeOther = '';
   }
@@ -162,10 +164,8 @@ function fieldWrap(label, inner) {
 
 function dateTimeFields(state) {
   return `
-    <div class="row2">
-      ${fieldWrap('Date', `<input type="date" data-field="date" value="${state.date}">`)}
-      ${fieldWrap('Time', `<input type="time" data-field="time" value="${state.time}">`)}
-    </div>`;
+    ${fieldWrap('Date', `<input type="date" data-field="date" value="${state.date}">`)}
+    ${fieldWrap('Time', `<input type="time" data-field="time" value="${state.time}">`)}`;
 }
 
 function segmentedField(name, label, options, state) {
@@ -201,18 +201,6 @@ function numberField(name, label, state, opts) {
 function textareaField(name, label, state) {
   const v = state[name] || '';
   return fieldWrap(label, `<textarea data-field="${name}" placeholder="Anything worth noting...">${v}</textarea>`);
-}
-
-function pillTypeField(type, state) {
-  const options = TYPE_PRESETS[type];
-  const btns = options.map(o =>
-    `<button type="button" class="btn-choice ${state.type === o ? 'selected' : ''}" data-field="type" data-value="${o}">${o}</button>`
-  ).join('');
-  let extra = '';
-  if (state.type === 'Other') {
-    extra = `<div class="field" style="margin-top:8px"><input type="text" data-field="typeOther" placeholder="Describe type..." value="${state.typeOther || ''}"></div>`;
-  }
-  return fieldWrap('Type', `<div class="pill-select">${btns}</div>${extra}`);
 }
 
 function multiPillTypeField(type, state) {
@@ -284,7 +272,7 @@ function renderMeditationForm(state) {
     <form data-form-type="meditation">
       <div class="card">
         ${dateTimeFields(state)}
-        ${pillTypeField('meditation', state)}
+        ${multiPillTypeField('meditation', state)}
         ${numberField('durationMinutes', 'Duration (minutes)', state, { placeholder: 'e.g. 15' })}
       </div>
       <div class="card">
@@ -300,7 +288,7 @@ function renderExerciseForm(state) {
     <form data-form-type="exercise">
       <div class="card">
         ${dateTimeFields(state)}
-        ${pillTypeField('exercise', state)}
+        ${multiPillTypeField('exercise', state)}
         ${numberField('durationMinutes', 'Duration (minutes)', state, { placeholder: 'e.g. 30' })}
       </div>
       <div class="card">
@@ -356,16 +344,15 @@ function buildPayload(type, state) {
       notes: state.notes || ''
     };
   }
-  const type_ = state.type === 'Other' ? (state.typeOther || 'Other').trim() : state.type;
+  const types = Array.isArray(state.types) ? state.types : [];
+  const typeLabel = types.map(t => t === 'Other' ? (state.typeOther || 'Other').trim() : t).join(', ');
   if (type === 'meditation') {
-    return { timestamp, type: type_, durationMinutes: state.durationMinutes || '', sentiment: state.sentiment || '', notes: state.notes || '' };
+    return { timestamp, type: typeLabel, durationMinutes: state.durationMinutes || '', sentiment: state.sentiment || '', notes: state.notes || '' };
   }
   if (type === 'exercise') {
-    return { timestamp, type: type_, durationMinutes: state.durationMinutes || '', intensity: state.intensity || '', sentiment: state.sentiment || '', notes: state.notes || '' };
+    return { timestamp, type: typeLabel, durationMinutes: state.durationMinutes || '', intensity: state.intensity || '', sentiment: state.sentiment || '', notes: state.notes || '' };
   }
   if (type === 'heartEvent') {
-    const types = Array.isArray(state.types) ? state.types : [];
-    const typeLabel = types.map(t => t === 'Other' ? (state.typeOther || 'Other').trim() : t).join(', ');
     return { timestamp, type: typeLabel, severity: state.severity || '', durationMinutes: state.durationMinutes || '', feeling: state.feeling || '', notes: state.notes || '' };
   }
 }
@@ -374,7 +361,7 @@ function validate(type, state) {
   if (type === 'bloodPressure') {
     if (!state.systolic1 || !state.diastolic1) return 'Enter at least the first systolic/diastolic reading.';
   } else if (type === 'meditation' || type === 'exercise') {
-    if (!state.type) return 'Pick a type.';
+    if (!state.types || !state.types.length) return 'Pick at least one type.';
     if (!state.durationMinutes) return 'Enter a duration.';
   } else if (type === 'heartEvent') {
     if (!state.types || !state.types.length) return 'Pick at least one type.';
@@ -626,7 +613,10 @@ function renderSettingsTab() {
     const res = await apiGet('bloodPressure', { limit: 1 });
     showToast(res.ok ? 'Connected' : (res.error || 'Failed'), res.ok ? 'success' : 'error');
   });
-  document.getElementById('sync-now').addEventListener('click', async () => {
+  document.getElementById('sync-now').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Syncing...';
     await syncQueue(false);
     renderSettingsTab();
   });

@@ -129,8 +129,7 @@ textarea {
 .field textarea { min-height: 70px; resize: vertical; }
 
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; min-width: 0; }
-.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; min-width: 0; }
-.row2 > *, .row3 > * { min-width: 0; }
+.row3 > * { min-width: 0; }
 
 .reading-group {
   border: 1px dashed var(--border);

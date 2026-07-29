@@ -1,4 +1,4 @@
-const CACHE = 'blood-app-v3';
+const CACHE = 'blood-app-v4';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -37,14 +37,13 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.method !== 'GET') return;
 
+  // Network-first for the app shell: always pick up the latest deploy when
+  // online, and only fall back to the cache when offline.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
-        return res;
-      }).catch(() => cached);
-    })
+    fetch(event.request).then((res) => {
+      const copy = res.clone();
+      caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+      return res;
+    }).catch(() => caches.match(event.request))
   );
 });
