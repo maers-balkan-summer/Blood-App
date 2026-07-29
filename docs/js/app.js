@@ -3,7 +3,7 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.28-4';
+const APP_VERSION = '2026.07.28-5';
 
 //////////////////// Storage ////////////////////
 
@@ -629,7 +629,7 @@ function renderSettingsTab() {
     setApiUrl(document.getElementById('set-url').value.trim());
     setSecret(document.getElementById('set-secret').value.trim());
     showToast('Settings saved', 'success');
-    setConnStatus(getApiUrl() ? 'bad' : 'unset');
+    setConnStatus('unset');
   });
   document.getElementById('test-conn').addEventListener('click', async () => {
     const url = document.getElementById('set-url').value.trim();
@@ -719,7 +719,7 @@ function init() {
   });
   initDelegation();
   setActiveTab('bloodPressure');
-  setConnStatus(getApiUrl() ? 'bad' : 'unset');
+  setConnStatus('unset');
 
   repairLegacyQueue();
   if (getApiUrl() && getQueue().length) {
