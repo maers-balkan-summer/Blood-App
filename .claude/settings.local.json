@@ -7,7 +7,16 @@
       "PowerShell(node --version)",
       "PowerShell(npx --version)",
       "PowerShell(powershell -ExecutionPolicy Bypass -File \"C:\\\\My Things \\(Not Cloud\\)\\\\Blood App\\\\serve.ps1\")",
-      "PowerShell(Get-NetTCPConnection -LocalPort 8420 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"stopped\")"
+      "PowerShell(Get-NetTCPConnection -LocalPort 8420 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; \"stopped\")",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" log --oneline -20)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" status)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" remote -v)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" log origin/main..HEAD --oneline)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" log HEAD..origin/main --oneline)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" diff -- docs/)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" add docs/css/style.css docs/js/app.js docs/sw.js)",
+      "Bash(git -C 'C:/My Things \\(Not Cloud\\)/Blood App' commit -m ' *)",
+      "Bash(git -C \"C:/My Things \\(Not Cloud\\)/Blood App\" push origin main)"
     ]
   }
 }
