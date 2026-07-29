@@ -1,4 +1,4 @@
-const CACHE = 'blood-app-v4';
+const CACHE = 'blood-app-v5';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -38,9 +38,11 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   // Network-first for the app shell: always pick up the latest deploy when
-  // online, and only fall back to the cache when offline.
+  // online, and only fall back to the cache when offline. cache: 'no-store'
+  // stops the browser's own HTTP cache from serving a stale GitHub Pages
+  // response out from under this logic.
   event.respondWith(
-    fetch(event.request).then((res) => {
+    fetch(event.request, { cache: 'no-store' }).then((res) => {
       const copy = res.clone();
       caches.open(CACHE).then((cache) => cache.put(event.request, copy));
       return res;
