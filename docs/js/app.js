@@ -35,7 +35,7 @@ function queueRecord(body) {
 async function apiPost(type, payload) {
   const url = getApiUrl();
   const secret = getSecret();
-  const body = Object.assign({ type }, secret ? { secret } : {}, payload);
+  const body = Object.assign({ recordType: type }, secret ? { secret } : {}, payload);
   if (!url) {
     queueRecord(body);
     setConnStatus('unset');
@@ -83,6 +83,27 @@ async function syncQueue(silent) {
   setConnStatus(remaining.length && synced === 0 ? 'bad' : (url ? 'ok' : 'unset'));
   if (!silent) showToast(`Synced ${synced}, ${remaining.length} remaining` + (remaining.length ? `: ${lastError}` : ''), remaining.length ? 'error' : 'success');
   return { synced, remaining: remaining.length };
+}
+
+// One-time repair for records queued before recordType/type were split apart
+// (a colliding `type` field used to overwrite the routing type with the
+// exercise/meditation/heartEvent category label). Infers the real record
+// type from which fields are present, since each type has a distinct shape.
+function repairLegacyQueue() {
+  const q = getQueue();
+  const validTypes = Object.keys(TYPE_META);
+  let changed = false;
+  const fixed = q.map(body => {
+    if (body.recordType || validTypes.includes(body.type)) return body;
+    let inferred = null;
+    if ('intensity' in body) inferred = 'exercise';
+    else if ('severity' in body || 'feeling' in body) inferred = 'heartEvent';
+    else if ('sentiment' in body) inferred = 'meditation';
+    if (!inferred) return body;
+    changed = true;
+    return Object.assign({}, body, { recordType: inferred });
+  });
+  if (changed) setQueue(fixed);
 }
 
 async function apiGet(type, params) {
@@ -697,6 +718,7 @@ function init() {
   setActiveTab('bloodPressure');
   setConnStatus(getApiUrl() ? 'bad' : 'unset');
 
+  repairLegacyQueue();
   if (getApiUrl() && getQueue().length) {
     syncQueue(true).then(() => { if (currentTab === 'settings') renderSettingsTab(); });
   }

@@ -77,7 +77,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     var body = JSON.parse(e.postData.contents);
-    var type = body.type;
+    var type = body.recordType || body.type;
     if (!type || !SHEETS[type]) {
       return jsonOutput({ ok: false, error: 'Unknown or missing type. Valid: ' + Object.keys(SHEETS).join(', ') });
     }
