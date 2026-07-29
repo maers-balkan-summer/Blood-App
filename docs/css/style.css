@@ -117,6 +117,8 @@ select,
 textarea {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -124,6 +126,16 @@ textarea {
   padding: 11px 12px;
   font-size: 1rem;
   font-family: inherit;
+}
+
+/* iOS Safari renders the native date/time control (icon + locale text)
+   with its own intrinsic sizing that ignores width:100%, letting it
+   overflow past the box entirely. Stripping the native appearance
+   forces it back into the standard box model. */
+input[type="date"],
+input[type="time"] {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .field textarea { min-height: 70px; resize: vertical; }

@@ -3,7 +3,7 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.28-6';
+const APP_VERSION = '2026.07.28-7';
 
 //////////////////// Storage ////////////////////
 
