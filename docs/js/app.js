@@ -3,6 +3,8 @@
  * queues offline, and renders trend charts + review tables.
  */
 
+const APP_VERSION = '2026.07.28-4';
+
 //////////////////// Storage ////////////////////
 
 const LS = {
@@ -621,6 +623,7 @@ function renderSettingsTab() {
     <div class="card">
       <p class="muted">Install: open this page in your phone's browser, then use "Add to Home Screen" (Safari share menu on iOS, or the install prompt / menu on Android Chrome).</p>
     </div>
+    <p class="muted" style="text-align:center">App version ${APP_VERSION}</p>
   `;
   document.getElementById('save-settings').addEventListener('click', () => {
     setApiUrl(document.getElementById('set-url').value.trim());
