@@ -9,7 +9,22 @@
   --accent-2: #f87171;
   --good: #4ade80;
   --warn: #fbbf24;
+  --alarm: #dc2626;
   --radius: 14px;
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f7fb;
+  --bg-card: #ffffff;
+  --bg-input: #eef1f6;
+  --border: #d7dee8;
+  --text: #16202f;
+  --text-dim: #5b6b83;
+  --accent: #0284c7;
+  --accent-2: #ef4444;
+  --good: #16a34a;
+  --warn: #d97706;
+  --alarm: #dc2626;
 }
 
 * { box-sizing: border-box; }
@@ -295,3 +310,27 @@ table.data-table th, table.data-table td {
 }
 
 .muted { color: var(--text-dim); font-size: 0.82rem; }
+
+.filters-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-align: left;
+  padding: 2px 0;
+}
+
+.filters-body { margin-top: 14px; }
+
+.filter-field { margin-bottom: 14px; }
+.filter-field:last-child { margin-bottom: 0; }
+
+.filter-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.filter-row .filter-op { flex: 0 0 auto; width: 40%; }
+.filter-row input.filter-val { flex: 1; min-width: 0; }

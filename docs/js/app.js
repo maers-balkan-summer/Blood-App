@@ -3,14 +3,15 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.28-7';
+const APP_VERSION = '2026.07.29-1';
 
 //////////////////// Storage ////////////////////
 
 const LS = {
   API_URL: 'healthlog_api_url',
   SECRET: 'healthlog_secret',
-  QUEUE: 'healthlog_queue'
+  QUEUE: 'healthlog_queue',
+  THEME: 'healthlog_theme'
 };
 
 const getApiUrl = () => localStorage.getItem(LS.API_URL) || '';
@@ -19,6 +20,17 @@ const getSecret = () => localStorage.getItem(LS.SECRET) || '';
 const setSecret = (v) => localStorage.setItem(LS.SECRET, v);
 const getQueue = () => { try { return JSON.parse(localStorage.getItem(LS.QUEUE) || '[]'); } catch (e) { return []; } };
 const setQueue = (q) => localStorage.setItem(LS.QUEUE, JSON.stringify(q));
+
+//////////////////// Theme ////////////////////
+
+const getTheme = () => localStorage.getItem(LS.THEME) || 'dark';
+function setTheme(theme) {
+  localStorage.setItem(LS.THEME, theme);
+  document.documentElement.setAttribute('data-theme', theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#f5f7fb' : '#0f172a');
+  if (currentTab === 'trends') renderTrendsTab();
+}
 
 //////////////////// API ////////////////////
 
@@ -423,8 +435,49 @@ function setActiveTab(tab) {
 
 //////////////////// Trends tab ////////////////////
 
-let trendState = { type: 'bloodPressure', range: 30 };
+const BP_THRESHOLDS = { systolic: 120, diastolic: 80, pulse: 80 };
+const ALARM_COLOR = '#dc2626';
+
+const FILTER_FIELDS = {
+  bloodPressure: [
+    { key: 'period', label: 'Period', kind: 'select', options: ['AM', 'PM'] },
+    { key: 'palpitations', label: 'Palpitations', kind: 'bool' },
+    { key: 'bathroomUsed', label: 'Bathroom used', kind: 'bool' },
+    { key: 'excitingLastHour', label: 'Exciting last hour', kind: 'bool' },
+    { key: 'excitingNextHour', label: 'Exciting next hour', kind: 'bool' },
+    { key: 'betaBlockerTaken', label: 'Beta blocker taken', kind: 'bool' },
+    { key: 'sleepHours', label: 'Sleep hours', kind: 'number' },
+    { key: 'drinksYesterday', label: 'Drinks yesterday', kind: 'number' },
+    { key: 'drinksToday', label: 'Drinks today', kind: 'number' },
+    { key: 'workStress', label: 'Work stress (1-5)', kind: 'number' },
+    { key: 'excitement', label: 'Excitement (1-5)', kind: 'number' },
+    { key: 'anxietySadnessWorry', label: 'Anxiety / sadness / worry (1-5)', kind: 'number' }
+  ],
+  meditation: [
+    { key: 'sentiment', label: 'Effectiveness (1-5)', kind: 'number' },
+    { key: 'durationMinutes', label: 'Duration (min)', kind: 'number' }
+  ],
+  exercise: [
+    { key: 'intensity', label: 'Intensity (1-5)', kind: 'number' },
+    { key: 'sentiment', label: 'How it felt (1-5)', kind: 'number' },
+    { key: 'durationMinutes', label: 'Duration (min)', kind: 'number' }
+  ],
+  heartEvent: [
+    { key: 'severity', label: 'Severity (1-5)', kind: 'number' },
+    { key: 'feeling', label: 'Head-effect (1-5)', kind: 'number' },
+    { key: 'durationMinutes', label: 'Duration (min)', kind: 'number' }
+  ]
+};
+
+let trendState = { type: 'bloodPressure', range: 30, filters: {}, filtersOpen: false, records: [], loadedType: null };
 let chartInstances = [];
+
+function chartTextColor() {
+  return (getComputedStyle(document.documentElement).getPropertyValue('--text-dim') || '#93a2ba').trim();
+}
+function chartGridColor() {
+  return (getComputedStyle(document.documentElement).getPropertyValue('--border') || '#2a3852').trim();
+}
 
 function destroyCharts() {
   chartInstances.forEach(c => c.destroy());
@@ -435,6 +488,90 @@ function withinRange(ts, days) {
   if (!days) return true;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   return new Date(ts).getTime() >= cutoff;
+}
+
+function activeFilterCount() {
+  return Object.values(trendState.filters).filter(f => {
+    if (f === null || f === undefined) return false;
+    if (typeof f === 'object') return f.val !== undefined && f.val !== '';
+    return f !== 'any';
+  }).length;
+}
+
+function filterOperatorField(key, label) {
+  const f = trendState.filters[key] || {};
+  const opBtns = ['>', '=', '<'].map(op =>
+    `<button type="button" class="btn-choice ${f.op === op ? 'selected' : ''}" data-filter-op="${key}" data-op-value="${op}">${op}</button>`
+  ).join('');
+  return `<div class="field filter-field">
+    <label>${label}</label>
+    <div class="filter-row">
+      <div class="segmented filter-op">${opBtns}</div>
+      <input type="number" inputmode="decimal" class="filter-val" data-filter-value="${key}" value="${f.val !== undefined ? f.val : ''}" placeholder="value">
+    </div>
+  </div>`;
+}
+
+function filterBoolField(key, label) {
+  const f = trendState.filters[key] || 'any';
+  const btns = [['any', 'Any'], ['yes', 'Yes'], ['no', 'No']].map(([v, l]) =>
+    `<button type="button" class="btn-choice ${f === v ? 'selected' : ''}" data-filter-bool="${key}" data-bool-value="${v}">${l}</button>`
+  ).join('');
+  return `<div class="field filter-field"><label>${label}</label><div class="segmented">${btns}</div></div>`;
+}
+
+function filterSelectField(key, label, options) {
+  const f = trendState.filters[key] || 'any';
+  const btns = ['any', ...options].map(v =>
+    `<button type="button" class="btn-choice ${f === v ? 'selected' : ''}" data-filter-select="${key}" data-select-value="${v}">${v === 'any' ? 'Any' : v}</button>`
+  ).join('');
+  return `<div class="field filter-field"><label>${label}</label><div class="segmented">${btns}</div></div>`;
+}
+
+function renderFilters(type) {
+  const defs = FILTER_FIELDS[type] || [];
+  if (!defs.length) return '';
+  const count = activeFilterCount();
+  const fieldsHtml = defs.map(d => {
+    if (d.kind === 'number') return filterOperatorField(d.key, d.label);
+    if (d.kind === 'bool') return filterBoolField(d.key, d.label);
+    return filterSelectField(d.key, d.label, d.options);
+  }).join('');
+  const body = trendState.filtersOpen
+    ? `<div class="filters-body">${fieldsHtml}${count ? `<button type="button" class="btn-secondary" data-filters-clear="1">Clear filters</button>` : ''}</div>`
+    : '';
+  return `
+    <div class="card">
+      <button type="button" class="filters-toggle" data-filters-toggle="1">Filters${count ? ` (${count})` : ''} ${trendState.filtersOpen ? '▲' : '▼'}</button>
+      ${body}
+    </div>`;
+}
+
+function applyFilters(records, type) {
+  const defs = FILTER_FIELDS[type] || [];
+  const filters = trendState.filters;
+  return records.filter(r => defs.every(def => {
+    const f = filters[def.key];
+    if (!f) return true;
+    if (def.kind === 'number') {
+      if (f.val === undefined || f.val === '') return true;
+      if (r[def.key] === '' || r[def.key] === undefined || r[def.key] === null) return false;
+      const num = Number(r[def.key]);
+      const target = Number(f.val);
+      if (f.op === '<') return num < target;
+      if (f.op === '=') return num === target;
+      return num > target; // default '>'
+    }
+    if (def.kind === 'bool') {
+      if (f === 'any') return true;
+      return !!r[def.key] === (f === 'yes');
+    }
+    if (def.kind === 'select') {
+      if (f === 'any') return true;
+      return r[def.key] === f;
+    }
+    return true;
+  }));
 }
 
 function renderTrendsTab() {
@@ -453,9 +590,15 @@ function renderTrendsTab() {
       <div class="field"><label>Record type</label><div class="pill-select">${typeBtns}</div></div>
       <div class="field"><label>Range</label><div class="segmented">${rangeBtns}</div></div>
     </div>
+    ${renderFilters(trendState.type)}
     <div id="trend-content"><p class="muted">Loading…</p></div>
   `;
-  loadTrend();
+
+  if (trendState.loadedType !== trendState.type) {
+    loadTrend();
+  } else {
+    renderTrendContent();
+  }
 }
 
 async function loadTrend() {
@@ -466,11 +609,21 @@ async function loadTrend() {
     content.innerHTML = `<p class="muted">${res.error || 'Could not load data.'}</p>`;
     return;
   }
-  let records = res.records.filter(r => r.timestamp && withinRange(r.timestamp, trendState.range));
+  trendState.loadedType = trendState.type;
+  trendState.records = res.records.filter(r => r.timestamp);
+  renderTrendContent();
+}
+
+function renderTrendContent() {
+  const content = document.getElementById('trend-content');
+  if (!content) return;
+  destroyCharts();
+  let records = trendState.records.filter(r => withinRange(r.timestamp, trendState.range));
+  records = applyFilters(records, trendState.type);
   records.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
   if (!records.length) {
-    content.innerHTML = `<p class="muted">No entries in this range yet.</p>`;
+    content.innerHTML = `<p class="muted">No entries match this range/filter combo.</p>`;
     return;
   }
 
@@ -514,19 +667,43 @@ function addChart(holder, title, records, fields, kind, color) {
     spanGaps: true,
     tension: 0.3
   }));
+  const axisColor = chartTextColor();
+  const gridColor = chartGridColor();
   const chart = new Chart(canvas, {
     type: kind,
     data: { labels: labelsFor(records), datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: fieldList.length > 1, labels: { color: '#93a2ba' } } },
+      plugins: { legend: { display: fieldList.length > 1, labels: { color: axisColor } } },
       scales: {
-        x: { ticks: { color: '#93a2ba', maxRotation: 60, minRotation: 60 }, grid: { color: '#2a3852' } },
-        y: { ticks: { color: '#93a2ba' }, grid: { color: '#2a3852' } }
+        x: { ticks: { color: axisColor, maxRotation: 60, minRotation: 60 }, grid: { color: gridColor } },
+        y: { ticks: { color: axisColor }, grid: { color: gridColor } }
       }
     }
   });
   chartInstances.push(chart);
+}
+
+function thresholdDataset(label, value, color, length) {
+  return {
+    label, data: Array(length).fill(value),
+    borderColor: color, borderWidth: 1, borderDash: [6, 4],
+    pointRadius: 0, fill: false, order: 10, isThreshold: true
+  };
+}
+
+function alarmPointColor(threshold, normalColor) {
+  return (ctx) => {
+    const v = ctx.raw;
+    return (v !== null && v !== undefined && v > threshold) ? ALARM_COLOR : normalColor;
+  };
+}
+
+function alarmPointRadius(threshold) {
+  return (ctx) => {
+    const v = ctx.raw;
+    return (v !== null && v !== undefined && v > threshold) ? 5 : 3;
+  };
 }
 
 function renderBPCharts(holder, records) {
@@ -541,26 +718,46 @@ function renderBPCharts(holder, records) {
     avgPulse: avg(r, ['bpm1', 'bpm2', 'bpm3'])
   }));
   const wrap = document.createElement('div');
-  wrap.innerHTML = `<div class="mini-label" style="margin-bottom:6px">Systolic / Diastolic (avg of readings)</div><div class="chart-wrap"><canvas id="bp-main"></canvas></div>
-    <div class="mini-label" style="margin:14px 0 6px">Pulse (avg)</div><div class="chart-wrap"><canvas id="bp-pulse"></canvas></div>`;
+  wrap.innerHTML = `<div class="mini-label" style="margin-bottom:6px">Systolic / Diastolic (avg of readings) — dots turn red above 120 / 80</div><div class="chart-wrap"><canvas id="bp-main"></canvas></div>
+    <div class="mini-label" style="margin:14px 0 6px">Pulse (avg) — dots turn red above 80</div><div class="chart-wrap"><canvas id="bp-pulse"></canvas></div>`;
   holder.appendChild(wrap);
 
+  const axisColor = chartTextColor();
+  const gridColor = chartGridColor();
   const labels = labelsFor(withAvg);
+  const legendFilter = (item, data) => !data.datasets[item.datasetIndex].isThreshold;
+
   const mainChart = new Chart(wrap.querySelector('#bp-main'), {
     type: 'line',
     data: {
       labels,
       datasets: [
-        { label: 'Systolic', data: withAvg.map(r => r.avgSystolic), borderColor: '#f87171', backgroundColor: '#f87171', spanGaps: true, tension: 0.3 },
-        { label: 'Diastolic', data: withAvg.map(r => r.avgDiastolic), borderColor: '#38bdf8', backgroundColor: '#38bdf8', spanGaps: true, tension: 0.3 }
+        {
+          label: 'Systolic', data: withAvg.map(r => r.avgSystolic),
+          borderColor: '#f87171', backgroundColor: '#f87171',
+          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.systolic, '#f87171'),
+          pointBorderColor: alarmPointColor(BP_THRESHOLDS.systolic, '#f87171'),
+          pointRadius: alarmPointRadius(BP_THRESHOLDS.systolic),
+          spanGaps: true, tension: 0.3
+        },
+        {
+          label: 'Diastolic', data: withAvg.map(r => r.avgDiastolic),
+          borderColor: '#38bdf8', backgroundColor: '#38bdf8',
+          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.diastolic, '#38bdf8'),
+          pointBorderColor: alarmPointColor(BP_THRESHOLDS.diastolic, '#38bdf8'),
+          pointRadius: alarmPointRadius(BP_THRESHOLDS.diastolic),
+          spanGaps: true, tension: 0.3
+        },
+        thresholdDataset(`Systolic threshold (${BP_THRESHOLDS.systolic})`, BP_THRESHOLDS.systolic, 'rgba(248,113,113,0.5)', labels.length),
+        thresholdDataset(`Diastolic threshold (${BP_THRESHOLDS.diastolic})`, BP_THRESHOLDS.diastolic, 'rgba(56,189,248,0.5)', labels.length)
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#93a2ba' } } },
+      plugins: { legend: { labels: { color: axisColor, filter: legendFilter } } },
       scales: {
-        x: { ticks: { color: '#93a2ba', maxRotation: 60, minRotation: 60 }, grid: { color: '#2a3852' } },
-        y: { ticks: { color: '#93a2ba' }, grid: { color: '#2a3852' } }
+        x: { ticks: { color: axisColor, maxRotation: 60, minRotation: 60 }, grid: { color: gridColor } },
+        y: { ticks: { color: axisColor }, grid: { color: gridColor } }
       }
     }
   });
@@ -568,13 +765,26 @@ function renderBPCharts(holder, records) {
 
   const pulseChart = new Chart(wrap.querySelector('#bp-pulse'), {
     type: 'line',
-    data: { labels, datasets: [{ label: 'Pulse', data: withAvg.map(r => r.avgPulse), borderColor: '#4ade80', backgroundColor: '#4ade80', spanGaps: true, tension: 0.3 }] },
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Pulse', data: withAvg.map(r => r.avgPulse),
+          borderColor: '#4ade80', backgroundColor: '#4ade80',
+          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.pulse, '#4ade80'),
+          pointBorderColor: alarmPointColor(BP_THRESHOLDS.pulse, '#4ade80'),
+          pointRadius: alarmPointRadius(BP_THRESHOLDS.pulse),
+          spanGaps: true, tension: 0.3
+        },
+        thresholdDataset(`Pulse threshold (${BP_THRESHOLDS.pulse})`, BP_THRESHOLDS.pulse, 'rgba(74,222,128,0.5)', labels.length)
+      ]
+    },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: { legend: { display: false, labels: { filter: legendFilter } } },
       scales: {
-        x: { ticks: { color: '#93a2ba', maxRotation: 60, minRotation: 60 }, grid: { color: '#2a3852' } },
-        y: { ticks: { color: '#93a2ba' }, grid: { color: '#2a3852' } }
+        x: { ticks: { color: axisColor, maxRotation: 60, minRotation: 60 }, grid: { color: gridColor } },
+        y: { ticks: { color: axisColor }, grid: { color: gridColor } }
       }
     }
   });
@@ -619,6 +829,15 @@ function renderSettingsTab() {
     <div class="card">
       <p class="muted">${q} entr${q === 1 ? 'y' : 'ies'} waiting to sync.</p>
       <button class="btn-secondary" id="sync-now">Sync now</button>
+    </div>
+    <div class="card">
+      <div class="field">
+        <label>Appearance</label>
+        <div class="segmented">
+          <button type="button" class="btn-choice ${getTheme() === 'dark' ? 'selected' : ''}" data-theme-choice="dark">🌙 Dark</button>
+          <button type="button" class="btn-choice ${getTheme() === 'light' ? 'selected' : ''}" data-theme-choice="light">☀️ Light</button>
+        </div>
+      </div>
     </div>
     <div class="card">
       <p class="muted">Install: open this page in your phone's browser, then use "Add to Home Screen" (Safari share menu on iOS, or the install prompt / menu on Android Chrome).</p>
@@ -671,18 +890,51 @@ function initDelegation() {
         renderFormTab(type);
       } else if (btn.dataset.trendType) {
         trendState.type = btn.dataset.trendType;
+        trendState.filters = {};
+        trendState.filtersOpen = false;
         renderTrendsTab();
       } else if (btn.dataset.trendRange !== undefined) {
         trendState.range = Number(btn.dataset.trendRange);
         renderTrendsTab();
+      } else if (btn.dataset.themeChoice) {
+        setTheme(btn.dataset.themeChoice);
+        renderSettingsTab();
+      } else if (btn.dataset.filterOp) {
+        const key = btn.dataset.filterOp;
+        trendState.filters[key] = Object.assign({}, trendState.filters[key], { op: btn.dataset.opValue });
+        renderTrendsTab();
+      } else if (btn.dataset.filterBool) {
+        trendState.filters[btn.dataset.filterBool] = btn.dataset.boolValue;
+        renderTrendsTab();
+      } else if (btn.dataset.filterSelect) {
+        trendState.filters[btn.dataset.filterSelect] = btn.dataset.selectValue;
+        renderTrendsTab();
       }
+      return;
+    }
+    if (e.target.closest('[data-filters-toggle]')) {
+      trendState.filtersOpen = !trendState.filtersOpen;
+      renderTrendsTab();
+      return;
+    }
+    if (e.target.closest('[data-filters-clear]')) {
+      trendState.filters = {};
+      renderTrendsTab();
       return;
     }
   });
 
   view.addEventListener('change', (e) => {
     const input = e.target;
-    if (!input.dataset || !input.dataset.field) return;
+    if (!input.dataset) return;
+    if (input.dataset.filterValue) {
+      const key = input.dataset.filterValue;
+      const existing = trendState.filters[key] || { op: '>' };
+      trendState.filters[key] = Object.assign({}, existing, { val: input.value });
+      renderTrendContent();
+      return;
+    }
+    if (!input.dataset.field) return;
     const form = input.closest('form');
     if (!form) return;
     const type = form.dataset.formType;
@@ -714,6 +966,9 @@ function initDelegation() {
 //////////////////// Init ////////////////////
 
 function init() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', getTheme() === 'light' ? '#f5f7fb' : '#0f172a');
+
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => setActiveTab(btn.dataset.tab));
   });
