@@ -3,7 +3,7 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.30-1';
+const APP_VERSION = '2026.07.30-2';
 
 //////////////////// Storage ////////////////////
 
@@ -11,7 +11,8 @@ const LS = {
   API_URL: 'healthlog_api_url',
   SECRET: 'healthlog_secret',
   QUEUE: 'healthlog_queue',
-  THEME: 'healthlog_theme'
+  THEME: 'healthlog_theme',
+  PALP_ACTIVE: 'healthlog_palp_active'
 };
 
 const getApiUrl = () => localStorage.getItem(LS.API_URL) || '';
@@ -158,13 +159,13 @@ const TYPE_META = {
   bloodPressure: { label: 'Blood Pressure', icon: '🩺' },
   meditation: { label: 'Meditation', icon: '🧘' },
   exercise: { label: 'Exercise', icon: '🏃' },
-  heartEvent: { label: 'Heart Event', icon: '❤️' }
+  heartEvent: { label: 'Other Heart', icon: '❤️' }
 };
 
 const TYPE_PRESETS = {
   meditation: ['Breathing', 'Body scan', 'Guided', 'Mantra', 'Silent / unguided', 'Other'],
   exercise: ['Cardio', 'Strength', 'Yoga', 'Walking', 'Cycling', 'Sports', 'Other'],
-  heartEvent: ['Palpitations', 'Racing heart', 'Skipped beat', 'Chest pain', 'Arrhythmia episode', 'Other']
+  heartEvent: ['Chest pain', 'Other']
 };
 
 function makeDefaultState(type) {
@@ -423,14 +424,114 @@ function renderFormTab(type) {
 function renderView() {
   if (currentTab === 'trends') return renderTrendsTab();
   if (currentTab === 'settings') return renderSettingsTab();
+  if (currentTab === 'palpEvent') return renderPalpTab();
   renderFormTab(currentTab);
 }
 
 function setActiveTab(tab) {
+  if (currentTab === 'palpEvent' && tab !== 'palpEvent') stopPalpTicker();
   currentTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('view').scrollTop = 0;
   renderView();
+}
+
+//////////////////// Palp tab (start/stop stopwatch) ////////////////////
+
+let palpTickInterval = null;
+
+function stopPalpTicker() {
+  if (palpTickInterval) { clearInterval(palpTickInterval); palpTickInterval = null; }
+}
+
+function getActivePalp() {
+  try { return JSON.parse(localStorage.getItem(LS.PALP_ACTIVE) || 'null'); } catch (e) { return null; }
+}
+function setActivePalp(v) {
+  if (v) localStorage.setItem(LS.PALP_ACTIVE, JSON.stringify(v));
+  else localStorage.removeItem(LS.PALP_ACTIVE);
+}
+
+function uuid() {
+  if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
+
+function nowTimestampPrecise() {
+  const d = new Date();
+  return `${toDateInputValue(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+}
+
+function formatDuration(totalMinutes) {
+  const totalMin = Math.round(totalMinutes);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
+function renderPalpTab() {
+  stopPalpTicker();
+  const view = document.getElementById('view');
+  const active = getActivePalp();
+
+  if (!active) {
+    view.innerHTML = `
+      <h2 class="view-title">💓 Palp</h2>
+      <button type="button" id="palp-btn" class="palp-btn palp-idle">
+        <span class="palp-heart">❤️</span>
+        <span class="palp-label">Palps started?</span>
+      </button>`;
+    document.getElementById('palp-btn').addEventListener('click', startPalp);
+    return;
+  }
+
+  const startDate = new Date(active.startTimestamp);
+  view.innerHTML = `
+    <h2 class="view-title">💓 Palp</h2>
+    <button type="button" id="palp-btn" class="palp-btn palp-running">
+      <span class="palp-heart">❤️</span>
+      <span class="palp-label">Palps ended?</span>
+      <span class="palp-sub">Started ${startDate.toLocaleString()}</span>
+      <span class="palp-elapsed" id="palp-elapsed"></span>
+    </button>`;
+  document.getElementById('palp-btn').addEventListener('click', stopPalp);
+
+  const elapsedEl = document.getElementById('palp-elapsed');
+  const tick = () => {
+    const ms = Date.now() - startDate.getTime();
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    elapsedEl.textContent = `${h}h ${pad2(m)}m ${pad2(s)}s`;
+  };
+  tick();
+  palpTickInterval = setInterval(tick, 1000);
+}
+
+async function startPalp() {
+  const id = uuid();
+  const startTimestamp = nowTimestampPrecise();
+  setActivePalp({ id, startTimestamp });
+  renderPalpTab();
+  const res = await apiPost('palpEvent', { id, startTimestamp, endTimestamp: '', durationMinutes: '' });
+  if (!res.ok && !res.queued) showToast(res.error || 'Could not save start — will retry.', 'error');
+}
+
+async function stopPalp() {
+  const active = getActivePalp();
+  if (!active) return;
+  stopPalpTicker();
+  const endTimestamp = nowTimestampPrecise();
+  const durationMinutes = Math.round(((new Date(endTimestamp) - new Date(active.startTimestamp)) / 60000) * 100) / 100;
+  setActivePalp(null);
+  renderPalpTab();
+  const res = await apiPost('palpEvent', { id: active.id, startTimestamp: active.startTimestamp, endTimestamp, durationMinutes });
+  if (res.ok) showToast(`Palp episode logged: ${formatDuration(durationMinutes)}`, 'success');
+  else if (res.queued) showToast(`Saved on this phone (${formatDuration(durationMinutes)}), will sync once online.`, 'success');
 }
 
 //////////////////// Trends tab ////////////////////

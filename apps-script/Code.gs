@@ -39,6 +39,11 @@ var SHEETS = {
   heartEvent: {
     tab: 'HeartEvent',
     fields: ['id', 'timestamp', 'type', 'severity', 'durationMinutes', 'feeling', 'notes']
+  },
+  palpEvent: {
+    tab: 'PalpEvent',
+    fields: ['id', 'startTimestamp', 'endTimestamp', 'durationMinutes'],
+    upsertById: true
   }
 };
 
@@ -88,16 +93,51 @@ function doPost(e) {
     var sheet = ensureSheet_(def.tab, def.fields);
     if (!body.id) body.id = Utilities.getUuid();
 
-    var row = def.fields.map(function (f) {
-      var v = body[f];
-      return (v === undefined || v === null) ? '' : v;
-    });
-    sheet.appendRow(row);
+    if (def.upsertById) {
+      upsertRow_(sheet, def.fields, body);
+    } else {
+      var row = def.fields.map(function (f) {
+        var v = body[f];
+        return (v === undefined || v === null) ? '' : v;
+      });
+      sheet.appendRow(row);
+    }
 
     return jsonOutput({ ok: true, id: body.id });
   } catch (err) {
     return jsonOutput({ ok: false, error: String(err) });
   }
+}
+
+// Inserts a new row keyed by body.id, or if a row with that id already
+// exists, merges in only the non-blank incoming fields (so a "start" write
+// followed later by a "stop" write fills in the end/duration columns
+// without clobbering the original start time, regardless of which arrives
+// first — e.g. after an offline queue replays out of order).
+function upsertRow_(sheet, fields, body) {
+  var idCol = fields.indexOf('id') + 1;
+  var lastRow = sheet.getLastRow();
+  var rowIndex = -1;
+  if (lastRow > 1) {
+    var ids = sheet.getRange(2, idCol, lastRow - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (ids[i][0] === body.id) { rowIndex = i + 2; break; }
+    }
+  }
+  var newRow = fields.map(function (f) {
+    var v = body[f];
+    return (v === undefined || v === null) ? '' : v;
+  });
+  if (rowIndex === -1) {
+    sheet.appendRow(newRow);
+    return;
+  }
+  var existing = sheet.getRange(rowIndex, 1, 1, fields.length).getValues()[0];
+  var merged = fields.map(function (f, i) {
+    var v = body[f];
+    return (v === undefined || v === null || v === '') ? existing[i] : v;
+  });
+  sheet.getRange(rowIndex, 1, 1, fields.length).setValues([merged]);
 }
 
 function checkSecret_(provided) {
