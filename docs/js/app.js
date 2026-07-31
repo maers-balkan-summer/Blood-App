@@ -3,7 +3,7 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.29-1';
+const APP_VERSION = '2026.07.30-1';
 
 //////////////////// Storage ////////////////////
 
@@ -437,6 +437,7 @@ function setActiveTab(tab) {
 
 const BP_THRESHOLDS = { systolic: 120, diastolic: 80, pulse: 80 };
 const ALARM_COLOR = '#dc2626';
+const PALP_COLOR = '#eab308';
 
 const FILTER_FIELDS = {
   bloodPressure: [
@@ -469,7 +470,7 @@ const FILTER_FIELDS = {
   ]
 };
 
-let trendState = { type: 'bloodPressure', range: 30, filters: {}, filtersOpen: false, records: [], loadedType: null };
+let trendState = { type: 'bloodPressure', range: 30, filters: {}, filtersOpen: false, highlightPalp: false, records: [], loadedType: null };
 let chartInstances = [];
 
 function chartTextColor() {
@@ -530,19 +531,26 @@ function filterSelectField(key, label, options) {
 
 function renderFilters(type) {
   const defs = FILTER_FIELDS[type] || [];
-  if (!defs.length) return '';
+  const showPalpToggle = type === 'bloodPressure';
+  if (!defs.length && !showPalpToggle) return '';
   const count = activeFilterCount();
   const fieldsHtml = defs.map(d => {
     if (d.kind === 'number') return filterOperatorField(d.key, d.label);
     if (d.kind === 'bool') return filterBoolField(d.key, d.label);
     return filterSelectField(d.key, d.label, d.options);
   }).join('');
-  const body = trendState.filtersOpen
+  const body = trendState.filtersOpen && defs.length
     ? `<div class="filters-body">${fieldsHtml}${count ? `<button type="button" class="btn-secondary" data-filters-clear="1">Clear filters</button>` : ''}</div>`
+    : '';
+  const palpToggle = showPalpToggle
+    ? `<label class="palp-highlight-toggle"><input type="checkbox" data-highlight-palp="1" ${trendState.highlightPalp ? 'checked' : ''}> Highlight palp events</label>`
     : '';
   return `
     <div class="card">
-      <button type="button" class="filters-toggle" data-filters-toggle="1">Filters${count ? ` (${count})` : ''} ${trendState.filtersOpen ? '▲' : '▼'}</button>
+      <div class="filters-toggle-row">
+        ${defs.length ? `<button type="button" class="filters-toggle" data-filters-toggle="1">Filters${count ? ` (${count})` : ''} ${trendState.filtersOpen ? '▲' : '▼'}</button>` : ''}
+        ${palpToggle}
+      </div>
       ${body}
     </div>`;
 }
@@ -692,15 +700,17 @@ function thresholdDataset(label, value, color, length) {
   };
 }
 
-function alarmPointColor(threshold, normalColor) {
+function alarmPointColor(records, threshold, normalColor) {
   return (ctx) => {
+    if (trendState.highlightPalp && records[ctx.dataIndex] && records[ctx.dataIndex].palpitations) return PALP_COLOR;
     const v = ctx.raw;
     return (v !== null && v !== undefined && v > threshold) ? ALARM_COLOR : normalColor;
   };
 }
 
-function alarmPointRadius(threshold) {
+function alarmPointRadius(records, threshold) {
   return (ctx) => {
+    if (trendState.highlightPalp && records[ctx.dataIndex] && records[ctx.dataIndex].palpitations) return 6;
     const v = ctx.raw;
     return (v !== null && v !== undefined && v > threshold) ? 5 : 3;
   };
@@ -715,7 +725,8 @@ function renderBPCharts(holder, records) {
     timestamp: r.timestamp,
     avgSystolic: avg(r, ['systolic1', 'systolic2', 'systolic3']),
     avgDiastolic: avg(r, ['diastolic1', 'diastolic2', 'diastolic3']),
-    avgPulse: avg(r, ['bpm1', 'bpm2', 'bpm3'])
+    avgPulse: avg(r, ['bpm1', 'bpm2', 'bpm3']),
+    palpitations: !!r.palpitations
   }));
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="mini-label" style="margin-bottom:6px">Systolic / Diastolic (avg of readings) — dots turn red above 120 / 80</div><div class="chart-wrap"><canvas id="bp-main"></canvas></div>
@@ -735,17 +746,17 @@ function renderBPCharts(holder, records) {
         {
           label: 'Systolic', data: withAvg.map(r => r.avgSystolic),
           borderColor: '#f87171', backgroundColor: '#f87171',
-          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.systolic, '#f87171'),
-          pointBorderColor: alarmPointColor(BP_THRESHOLDS.systolic, '#f87171'),
-          pointRadius: alarmPointRadius(BP_THRESHOLDS.systolic),
+          pointBackgroundColor: alarmPointColor(withAvg, BP_THRESHOLDS.systolic, '#f87171'),
+          pointBorderColor: alarmPointColor(withAvg, BP_THRESHOLDS.systolic, '#f87171'),
+          pointRadius: alarmPointRadius(withAvg, BP_THRESHOLDS.systolic),
           spanGaps: true, tension: 0.3
         },
         {
           label: 'Diastolic', data: withAvg.map(r => r.avgDiastolic),
           borderColor: '#38bdf8', backgroundColor: '#38bdf8',
-          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.diastolic, '#38bdf8'),
-          pointBorderColor: alarmPointColor(BP_THRESHOLDS.diastolic, '#38bdf8'),
-          pointRadius: alarmPointRadius(BP_THRESHOLDS.diastolic),
+          pointBackgroundColor: alarmPointColor(withAvg, BP_THRESHOLDS.diastolic, '#38bdf8'),
+          pointBorderColor: alarmPointColor(withAvg, BP_THRESHOLDS.diastolic, '#38bdf8'),
+          pointRadius: alarmPointRadius(withAvg, BP_THRESHOLDS.diastolic),
           spanGaps: true, tension: 0.3
         },
         thresholdDataset(`Systolic threshold (${BP_THRESHOLDS.systolic})`, BP_THRESHOLDS.systolic, 'rgba(248,113,113,0.5)', labels.length),
@@ -771,9 +782,9 @@ function renderBPCharts(holder, records) {
         {
           label: 'Pulse', data: withAvg.map(r => r.avgPulse),
           borderColor: '#4ade80', backgroundColor: '#4ade80',
-          pointBackgroundColor: alarmPointColor(BP_THRESHOLDS.pulse, '#4ade80'),
-          pointBorderColor: alarmPointColor(BP_THRESHOLDS.pulse, '#4ade80'),
-          pointRadius: alarmPointRadius(BP_THRESHOLDS.pulse),
+          pointBackgroundColor: alarmPointColor(withAvg, BP_THRESHOLDS.pulse, '#4ade80'),
+          pointBorderColor: alarmPointColor(withAvg, BP_THRESHOLDS.pulse, '#4ade80'),
+          pointRadius: alarmPointRadius(withAvg, BP_THRESHOLDS.pulse),
           spanGaps: true, tension: 0.3
         },
         thresholdDataset(`Pulse threshold (${BP_THRESHOLDS.pulse})`, BP_THRESHOLDS.pulse, 'rgba(74,222,128,0.5)', labels.length)
@@ -927,6 +938,11 @@ function initDelegation() {
   view.addEventListener('change', (e) => {
     const input = e.target;
     if (!input.dataset) return;
+    if (input.dataset.highlightPalp) {
+      trendState.highlightPalp = input.checked;
+      renderTrendContent();
+      return;
+    }
     if (input.dataset.filterValue) {
       const key = input.dataset.filterValue;
       const existing = trendState.filters[key] || { op: '>' };

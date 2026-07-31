@@ -311,8 +311,15 @@ table.data-table th, table.data-table td {
 
 .muted { color: var(--text-dim); font-size: 0.82rem; }
 
+.filters-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .filters-toggle {
-  width: 100%;
+  flex: 1;
   background: none;
   border: none;
   color: var(--text);
@@ -320,6 +327,23 @@ table.data-table th, table.data-table td {
   font-weight: 700;
   text-align: left;
   padding: 2px 0;
+}
+
+.palp-highlight-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.palp-highlight-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #eab308;
+  cursor: pointer;
 }
 
 .filters-body { margin-top: 14px; }

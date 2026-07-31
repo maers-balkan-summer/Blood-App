@@ -1,4 +1,4 @@
-const CACHE = 'blood-app-v6';
+const CACHE = 'blood-app-v7';
 const SHELL_FILES = [
   './',
   './index.html',
