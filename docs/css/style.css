@@ -350,6 +350,13 @@ table.data-table th, table.data-table td {
   padding: 2px 0;
 }
 
+.highlight-toggles {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
 .palp-highlight-toggle {
   display: flex;
   align-items: center;
@@ -365,6 +372,10 @@ table.data-table th, table.data-table td {
   height: 16px;
   accent-color: #eab308;
   cursor: pointer;
+}
+
+.blocker-highlight-toggle input[type="checkbox"] {
+  accent-color: #22c55e;
 }
 
 .filters-body { margin-top: 14px; }

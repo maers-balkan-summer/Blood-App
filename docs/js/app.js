@@ -539,6 +539,7 @@ async function stopPalp() {
 const BP_THRESHOLDS = { systolic: 120, diastolic: 80, pulse: 80 };
 const ALARM_COLOR = '#dc2626';
 const PALP_COLOR = '#eab308';
+const BLOCKER_COLOR = '#22c55e';
 
 const FILTER_FIELDS = {
   bloodPressure: [
@@ -571,7 +572,7 @@ const FILTER_FIELDS = {
   ]
 };
 
-let trendState = { type: 'bloodPressure', range: 30, filters: {}, filtersOpen: false, highlightPalp: false, records: [], loadedType: null };
+let trendState = { type: 'bloodPressure', range: 30, filters: {}, filtersOpen: false, highlightPalp: false, highlightBlocker: false, records: [], loadedType: null };
 let chartInstances = [];
 
 function chartTextColor() {
@@ -644,7 +645,10 @@ function renderFilters(type) {
     ? `<div class="filters-body">${fieldsHtml}${count ? `<button type="button" class="btn-secondary" data-filters-clear="1">Clear filters</button>` : ''}</div>`
     : '';
   const palpToggle = showPalpToggle
-    ? `<label class="palp-highlight-toggle"><input type="checkbox" data-highlight-palp="1" ${trendState.highlightPalp ? 'checked' : ''}> Highlight palp events</label>`
+    ? `<div class="highlight-toggles">
+        <label class="palp-highlight-toggle"><input type="checkbox" data-highlight-palp="1" ${trendState.highlightPalp ? 'checked' : ''}> Highlight palp events</label>
+        <label class="palp-highlight-toggle blocker-highlight-toggle"><input type="checkbox" data-highlight-blocker="1" ${trendState.highlightBlocker ? 'checked' : ''}> Post-blocker readings</label>
+      </div>`
     : '';
   return `
     <div class="card">
@@ -804,6 +808,7 @@ function thresholdDataset(label, value, color, length) {
 function alarmPointColor(records, threshold, normalColor) {
   return (ctx) => {
     if (trendState.highlightPalp && records[ctx.dataIndex] && records[ctx.dataIndex].palpitations) return PALP_COLOR;
+    if (trendState.highlightBlocker && records[ctx.dataIndex] && records[ctx.dataIndex].betaBlockerTaken) return BLOCKER_COLOR;
     const v = ctx.raw;
     return (v !== null && v !== undefined && v > threshold) ? ALARM_COLOR : normalColor;
   };
@@ -812,6 +817,7 @@ function alarmPointColor(records, threshold, normalColor) {
 function alarmPointRadius(records, threshold) {
   return (ctx) => {
     if (trendState.highlightPalp && records[ctx.dataIndex] && records[ctx.dataIndex].palpitations) return 6;
+    if (trendState.highlightBlocker && records[ctx.dataIndex] && records[ctx.dataIndex].betaBlockerTaken) return 6;
     const v = ctx.raw;
     return (v !== null && v !== undefined && v > threshold) ? 5 : 3;
   };
@@ -827,7 +833,8 @@ function renderBPCharts(holder, records) {
     avgSystolic: avg(r, ['systolic1', 'systolic2', 'systolic3']),
     avgDiastolic: avg(r, ['diastolic1', 'diastolic2', 'diastolic3']),
     avgPulse: avg(r, ['bpm1', 'bpm2', 'bpm3']),
-    palpitations: !!r.palpitations
+    palpitations: !!r.palpitations,
+    betaBlockerTaken: !!r.betaBlockerTaken
   }));
   const wrap = document.createElement('div');
   wrap.innerHTML = `<div class="mini-label" style="margin-bottom:6px">Systolic / Diastolic (avg of readings) — dots turn red above 120 / 80</div><div class="chart-wrap"><canvas id="bp-main"></canvas></div>
@@ -1041,6 +1048,11 @@ function initDelegation() {
     if (!input.dataset) return;
     if (input.dataset.highlightPalp) {
       trendState.highlightPalp = input.checked;
+      renderTrendContent();
+      return;
+    }
+    if (input.dataset.highlightBlocker) {
+      trendState.highlightBlocker = input.checked;
       renderTrendContent();
       return;
     }
