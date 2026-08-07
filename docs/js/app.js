@@ -3,7 +3,7 @@
  * queues offline, and renders trend charts + review tables.
  */
 
-const APP_VERSION = '2026.07.30-2';
+const APP_VERSION = '2026.08.06-1';
 
 //////////////////// Storage ////////////////////
 
@@ -425,11 +425,13 @@ function renderView() {
   if (currentTab === 'trends') return renderTrendsTab();
   if (currentTab === 'settings') return renderSettingsTab();
   if (currentTab === 'palpEvent') return renderPalpTab();
+  if (currentTab === 'palpCalendar') return renderPalpCalendarTab();
   renderFormTab(currentTab);
 }
 
 function setActiveTab(tab) {
   if (currentTab === 'palpEvent' && tab !== 'palpEvent') stopPalpTicker();
+  if (tab === 'palpCalendar') palpCalendarState.records = null; // reload so newly logged episodes show up
   currentTab = tab;
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('view').scrollTop = 0;
@@ -532,6 +534,164 @@ async function stopPalp() {
   const res = await apiPost('palpEvent', { id: active.id, startTimestamp: active.startTimestamp, endTimestamp, durationMinutes });
   if (res.ok) showToast(`Palp episode logged: ${formatDuration(durationMinutes)}`, 'success');
   else if (res.queued) showToast(`Saved on this phone (${formatDuration(durationMinutes)}), will sync once online.`, 'success');
+}
+
+//////////////////// Palp calendar tab ////////////////////
+
+let palpCalendarState = { year: null, month: null, records: null, loadError: null, selectedDate: null };
+
+function renderPalpCalendarTab() {
+  const now = new Date();
+  if (palpCalendarState.year === null) {
+    palpCalendarState.year = now.getFullYear();
+    palpCalendarState.month = now.getMonth();
+  }
+  if (palpCalendarState.records === null) {
+    loadPalpCalendarData();
+  } else {
+    renderPalpCalendarContent();
+  }
+}
+
+async function loadPalpCalendarData() {
+  const view = document.getElementById('view');
+  view.innerHTML = `<h2 class="view-title">📅 Palp Calendar</h2><p class="muted">Loading…</p>`;
+  const res = await apiGet('palpEvent', { limit: 1000 });
+  if (!res.ok) {
+    palpCalendarState.records = [];
+    palpCalendarState.loadError = res.error || 'Could not load data.';
+  } else {
+    palpCalendarState.records = res.records.filter(r => r.startTimestamp);
+    palpCalendarState.loadError = null;
+  }
+  renderPalpCalendarContent();
+}
+
+// Cross-midnight episodes are attributed entirely to their start date —
+// good enough for a "which days had palps" overview.
+function palpDayMap(records) {
+  const map = {};
+  for (const r of records) {
+    const key = toDateInputValue(new Date(r.startTimestamp));
+    const minutes = r.durationMinutes === '' || r.durationMinutes === undefined || r.durationMinutes === null
+      ? 0 : Number(r.durationMinutes);
+    if (!map[key]) map[key] = { totalMinutes: 0, events: [] };
+    map[key].totalMinutes += minutes;
+    map[key].events.push(r);
+  }
+  return map;
+}
+
+function palpHeatLevel(minutes) {
+  if (!minutes) return 0;
+  if (minutes < 15) return 1;
+  if (minutes < 60) return 2;
+  if (minutes < 180) return 3;
+  return 4;
+}
+
+function buildMonthWeeks(year, month) {
+  const startOffset = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < startOffset; i++) {
+    cells.push({ date: new Date(year, month - 1, daysInPrevMonth - startOffset + 1 + i), inMonth: false });
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ date: new Date(year, month, d), inMonth: true });
+  }
+  let nextDay = 1;
+  while (cells.length % 7 !== 0) {
+    cells.push({ date: new Date(year, month + 1, nextDay++), inMonth: false });
+  }
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+function shiftPalpCalendarMonth(delta) {
+  let { year, month } = palpCalendarState;
+  month += delta;
+  if (month < 0) { month = 11; year -= 1; }
+  else if (month > 11) { month = 0; year += 1; }
+  palpCalendarState.year = year;
+  palpCalendarState.month = month;
+  palpCalendarState.selectedDate = null;
+  renderPalpCalendarContent();
+}
+
+function renderPalpDayDetail(key, info) {
+  if (!key) return `<p class="muted">Tap a day to see palp episodes.</p>`;
+  const label = new Date(key + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  if (!info || !info.events.length) {
+    return `<div class="mini-label" style="margin-bottom:6px">${label}</div><p class="muted">No palp episodes.</p>`;
+  }
+  const events = [...info.events].sort((a, b) => new Date(a.startTimestamp) - new Date(b.startTimestamp));
+  const rows = events.map(ev => {
+    const startLabel = new Date(ev.startTimestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (!ev.endTimestamp) {
+      return `<div class="cal-event"><span>${startLabel} – ongoing</span></div>`;
+    }
+    const endLabel = new Date(ev.endTimestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return `<div class="cal-event"><span>${startLabel} – ${endLabel}</span><span>${formatDuration(Number(ev.durationMinutes) || 0)}</span></div>`;
+  }).join('');
+  return `<div class="mini-label" style="margin-bottom:6px">${label} — ${formatDuration(info.totalMinutes)} total</div>${rows}`;
+}
+
+function renderPalpCalendarContent() {
+  const view = document.getElementById('view');
+  const { year, month } = palpCalendarState;
+  const monthLabel = new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const dayMap = palpDayMap(palpCalendarState.records || []);
+  const weeks = buildMonthWeeks(year, month);
+  const todayKey = toDateInputValue(new Date());
+  const monthPrefix = `${year}-${pad2(month + 1)}`;
+
+  const monthTotalMinutes = Object.entries(dayMap)
+    .filter(([key]) => key.startsWith(monthPrefix))
+    .reduce((sum, [, v]) => sum + v.totalMinutes, 0);
+
+  const weekdayHeader = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => `<div class="cal-weekday">${d}</div>`).join('');
+
+  const gridHtml = weeks.map(week => week.map(cell => {
+    const key = toDateInputValue(cell.date);
+    const info = dayMap[key];
+    const level = info ? palpHeatLevel(info.totalMinutes) : 0;
+    const classes = ['cal-cell'];
+    if (!cell.inMonth) classes.push('other-month');
+    if (key === todayKey) classes.push('today');
+    if (key === palpCalendarState.selectedDate) classes.push('selected');
+    if (level) classes.push(`cal-level-${level}`);
+    const durationLabel = info && info.totalMinutes ? formatDuration(info.totalMinutes) : '';
+    return `<button type="button" class="${classes.join(' ')}" data-cal-day="${key}">
+      <span class="cal-daynum">${cell.date.getDate()}</span>
+      ${durationLabel ? `<span class="cal-duration">${durationLabel}</span>` : ''}
+    </button>`;
+  }).join('')).join('');
+
+  const selectedKey = palpCalendarState.selectedDate;
+  const detailHtml = renderPalpDayDetail(selectedKey, selectedKey ? dayMap[selectedKey] : null);
+
+  view.innerHTML = `
+    <h2 class="view-title">📅 Palp Calendar</h2>
+    <div class="card">
+      <div class="cal-nav">
+        <button type="button" class="btn-secondary cal-nav-btn" data-cal-prev="1">‹</button>
+        <div class="cal-nav-label">
+          <div class="cal-month-label">${monthLabel}</div>
+          <div class="muted">${monthTotalMinutes ? formatDuration(monthTotalMinutes) + ' total this month' : 'No palp episodes this month'}</div>
+        </div>
+        <button type="button" class="btn-secondary cal-nav-btn" data-cal-next="1">›</button>
+      </div>
+      ${monthPrefix !== todayKey.slice(0, 7) ? `<button type="button" class="btn-secondary" data-cal-today="1">Back to this month</button>` : ''}
+      <div class="cal-grid cal-weekdays">${weekdayHeader}</div>
+      <div class="cal-grid">${gridHtml}</div>
+    </div>
+    <div class="card" id="cal-detail">${detailHtml}</div>
+  `;
+
+  if (palpCalendarState.loadError) showToast(palpCalendarState.loadError, 'error');
 }
 
 //////////////////// Trends tab ////////////////////
@@ -1039,6 +1199,23 @@ function initDelegation() {
     if (e.target.closest('[data-filters-clear]')) {
       trendState.filters = {};
       renderTrendsTab();
+      return;
+    }
+    const calDay = e.target.closest('[data-cal-day]');
+    if (calDay) {
+      const key = calDay.dataset.calDay;
+      palpCalendarState.selectedDate = palpCalendarState.selectedDate === key ? null : key;
+      renderPalpCalendarContent();
+      return;
+    }
+    if (e.target.closest('[data-cal-prev]')) { shiftPalpCalendarMonth(-1); return; }
+    if (e.target.closest('[data-cal-next]')) { shiftPalpCalendarMonth(1); return; }
+    if (e.target.closest('[data-cal-today]')) {
+      const now = new Date();
+      palpCalendarState.year = now.getFullYear();
+      palpCalendarState.month = now.getMonth();
+      palpCalendarState.selectedDate = null;
+      renderPalpCalendarContent();
       return;
     }
   });
